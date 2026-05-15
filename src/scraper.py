@@ -4,6 +4,7 @@ import time
 import shutil
 import glob
 import pandas as pd
+import bibtexparser
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
@@ -29,6 +30,70 @@ COLUMNAS_AUTORES  = ["AU", "Author", "Autores", "author", "AU "]
 COLUMNAS_ANIO     = ["PY", "Year", "Año", "year", "PY "]
 COLUMNAS_DOI      = ["DOI", "doi", "Do"]
 
+def bibtex_to_dataframe(ruta_bib):
+    try:
+        with open(ruta_bib,encoding='utf-8') as bibtex_file:
+            bib_database = bibtexparser.load(bibtex_file)
+        df = pd.DataFrame(bib_database.entries)
+
+        mapping = {
+            'title': 'title',
+            'author': 'authors',
+            'abstract': 'summary',
+            'year': 'published',
+            'doi': 'url'
+        }
+
+        df_out = pd.DataFrame()
+        df_out = pd.DataFrame()
+        df_out['title'] = df['title'] if 'title' in df.columns else pd.Series()
+        df_out['authors'] = df['author'] if 'author' in df.columns else "Sin autor"
+        df_out['summary'] = df['abstract'] if 'abstract' in df.columns else "Sin resumen"
+        df_out['published'] = df['year'] if 'year' in df.columns else "2024"
+        df_out['url'] = df['doi'].apply(lambda d: f"https://doi.org/{d}" if pd.notnull(d) else "")
+
+        return df_out
+    except Exception as e:
+       print(f"   ⚠️ Error procesando BibTeX: {e}")
+       return pd.DataFrame()
+    
+def clic_boton_exportar(driver):
+    selectores = [
+        (By.CSS_SELECTOR, "button[data-auto='export-all-link']"), # Por el nombre que me diste
+        (By.CLASS_NAME, "export-all-link-text"), 
+        (By.XPATH, "//span[contains(text(), 'Export')]"),
+        (By.XPATH, "//button[.//span[contains(text(), 'Export')]]")
+    ]
+    el = encontrar_elemento(driver, selectores, timeout=10)
+    if el:
+        try:
+            clic_js(driver, el)
+            print("   ✅ Botón 'Export' pulsado.")
+            return True
+        except Exception as e:
+            print(f"   ⚠️ Error: {e}")
+    return False
+
+def manejar_modal_export(driver):
+    print("   ⏳ Esperando modal de exportación...")
+    time.sleep(2)
+    
+    # Según tu captura, el modal tiene opciones como "Export citation to BibTeX"
+    selectores_bibtex = [
+        (By.XPATH, "//button[contains(text(), 'BibTeX')]"),
+        (By.XPATH, "//span[contains(text(), 'BibTeX')]"),
+        (By.PARTIAL_LINK_TEXT, "BibTeX")
+    ]
+    
+    el = encontrar_elemento(driver, selectores_bibtex, timeout=8)
+    if el:
+        try:
+            clic_js(driver, el)
+            print("   ✅ Opción BibTeX seleccionada.")
+            return True
+        except Exception as e:
+            print(f"   ⚠️ Error al seleccionar formato: {e}")
+    return False
 
 def configurar_driver(carpeta):
     os.makedirs(carpeta, exist_ok=True)
@@ -122,6 +187,8 @@ def seleccionar_todos(driver):
 
 def clic_boton_descargar(driver):
     selectores = [
+        (By.CSS_SELECTOR, ".export-all-link-text"), 
+        (By.XPATH, "//span[contains(text(), 'Export')]"),
         (By.CSS_SELECTOR, "button[data-auto='toolbar-download-button']"),
         (By.CSS_SELECTOR, "button[data-auto='download-button']"),
         (By.CSS_SELECTOR, "button[data-auto='bulk-download']"),
@@ -151,22 +218,14 @@ def clic_boton_descargar(driver):
 
 def manejar_modal_csv(driver):
     """
-    En el modal de EBSCO selecciona formato CSV (incluye resúmenes/abstracts)
-    y pulsa Descargar.
-
-    El modal tiene:
-      ⦿ PDF
-      ○ MS WORD
-      ○ CSV       ← este queremos (incluye abstract completo)
-      ○ BIBTEX
-      ○ MARC21
-      ○ XML
+    En el modal de EBSCO selecciona formato CSV.
+    En el modal de ScienceDirect selecciona BibTeX (que dispara la descarga directa).
     """
     print("   ⏳ Esperando modal...")
     time.sleep(3)
 
     # Esperar modal
-    for sel in ["[role='dialog']", ".modal", "[class*='modal']"]:
+    for sel in ["[role='dialog']", ".modal", "[class*='modal']", ".modal-content"]:
         try:
             WebDriverWait(driver, 8).until(
                 EC.presence_of_element_located((By.CSS_SELECTOR, sel))
@@ -176,71 +235,70 @@ def manejar_modal_csv(driver):
         except Exception:
             continue
 
-    # ── Seleccionar CSV (tiene el resumen/abstract completo) ─────────────────
+    # ── Seleccionar formato ─────────────────
     selectores_csv = [
+        # Prioridad ScienceDirect: el data-aa-button es el ID más seguro de tu HTML
+        (By.CSS_SELECTOR, "button[data-aa-button='srp-export-multi-bibtex']"),
+        (By.XPATH, "//span[contains(text(), 'BibTeX')]"),
+        # Selectores EBSCO originales
         (By.CSS_SELECTOR, "input[type='radio'][value='Csv']"),
         (By.CSS_SELECTOR, "input[type='radio'][value='CSV']"),
-        (By.CSS_SELECTOR, "input[type='radio'][value='csv']"),
         (By.XPATH, "//label[normalize-space(text())='CSV']/preceding-sibling::input"),
-        (By.XPATH, "//label[normalize-space(text())='CSV']/../input"),
-        (By.XPATH, "//input[@type='radio'][following-sibling::*[normalize-space(text())='CSV']]"),
-        (By.XPATH, "//span[normalize-space(text())='CSV']/../input[@type='radio']"),
-        # Tercer radio del modal (PDF=1, MS WORD=2, CSV=3)
         (By.XPATH, "(//input[@type='radio'])[3]"),
     ]
 
     csv_marcado = False
     for by, sel in selectores_csv:
         try:
-            radio = driver.find_element(by, sel)
-            if not radio.is_selected():
-                clic_js(driver, radio)
-            print("   📊 Formato CSV seleccionado (incluye resúmenes).")
-            csv_marcado = True
-            break
+            elemento = driver.find_element(by, sel)
+            
+            # --- CAMBIO CLAVE PARA SCIENCEDIRECT ---
+            # Si es un botón (ScienceDirect), el clic inicia la descarga solo.
+            if elemento.tag_name == "button" or "button" in elemento.get_attribute("class"):
+                clic_js(driver, elemento)
+                print("   📊 ScienceDirect: Botón BibTeX pulsado. Descarga iniciada.")
+                return True # Salimos aquí porque no hay botón "Confirmar" después
+            
+            # --- LÓGICA ORIGINAL EBSCO ---
+            if elemento.tag_name == "input":
+                if not elemento.is_selected():
+                    clic_js(driver, elemento)
+                print("   📊 Formato CSV seleccionado.")
+                csv_marcado = True
+                break # Rompemos el bucle para ir abajo al botón de confirmar
         except Exception:
             continue
 
+    # Fallback original si no se marcó nada (EBSCO)
     if not csv_marcado:
-        print("   ⚠️  No se pudo seleccionar CSV; intentando con PDF como fallback.")
-        for by, sel in [
-            (By.XPATH, "(//input[@type='radio'])[1]"),
-            (By.CSS_SELECTOR, "input[type='radio'][value='Pdf']"),
-        ]:
+        print("   ⚠️  No se pudo seleccionar automáticamente; buscando radios de EBSCO.")
+        for by, sel in [(By.XPATH, "(//input[@type='radio'])[1]"), (By.CSS_SELECTOR, "input[type='radio'][value='Pdf']")]:
             try:
                 radio = driver.find_element(by, sel)
-                if not radio.is_selected():
-                    clic_js(driver, radio)
-                print("   📄 PDF seleccionado como fallback.")
+                if not radio.is_selected(): clic_js(driver, radio)
                 break
-            except Exception:
-                continue
+            except: continue
 
     time.sleep(0.5)
 
-    # ── Botón "Descargar" del modal ──────────────────────────────────────────
+    # ── Botón "Descargar" (Solo para EBSCO) ─────────────────
     selectores_boton = [
         (By.CSS_SELECTOR, "button[data-auto='confirm-download']"),
         (By.CSS_SELECTOR, "button[data-auto='modal-download']"),
-        (By.CSS_SELECTOR, "button[data-auto='download-submit']"),
         (By.XPATH, "//button[normalize-space(text())='Descargar']"),
         (By.XPATH, "//button[normalize-space(text())='Download']"),
-        (By.XPATH, "//*[@role='dialog']//button[contains(text(),'Descargar')]"),
         (By.XPATH, "(//*[@role='dialog']//button)[last()]"),
-        (By.XPATH, "(//*[contains(@class,'modal')]//button)[last()]"),
     ]
     el = encontrar_elemento(driver, selectores_boton, timeout=6)
     if el:
         try:
             clic_js(driver, el)
-            print("   ✅ Confirmado en modal.")
+            print("   ✅ Confirmado en modal de EBSCO.")
             return True
         except Exception as e:
             print(f"   ⚠️  Error al confirmar: {e}")
-    else:
-        print("   ❌ Botón modal no encontrado.")
-        diagnosticar(driver)
-    return False
+    
+    return csv_marcado
 
 
 # ══════════════════════════════════════════════════════════
@@ -379,8 +437,12 @@ INSTRUCCIONES:
                     print(f"  ⚠️  Renombrado fallido: {e}")
 
                 # 5. Procesar CSV descargado
-                if ruta.endswith(".csv"):
+                if ruta.lower().endswith(".csv"):
                     df_pag = procesar_csv_ebsco(ruta)
+                    if not df_pag.empty:
+                        frames.append(df_pag)
+                elif ruta.lower().endswith(".bib"):
+                    df_pag = bibtex_to_dataframe(ruta)
                     if not df_pag.empty:
                         frames.append(df_pag)
                 else:
