@@ -43,7 +43,7 @@ elif menu == "Req 1: Descarga y Unificación":
             
 elif menu == "Req 2: Similitud Textual":
     st.header("🔍 Análisis de Similitud Textual")
-    st.write("Compare el abstract de dos artículos usando algoritmos clásicos y de IA.")
+    st.write("Compare el abstract de dos artículos usando algoritmos clásicos, estadísticos y de IA avanzada.")
     
     if os.path.exists('data/processed/unificado.csv'):
         df = pd.read_csv('data/processed/unificado.csv')
@@ -57,21 +57,29 @@ elif menu == "Req 2: Similitud Textual":
             abs1 = df[df['title'] == seleccion[0]]['summary'].values[0]
             abs2 = df[df['title'] == seleccion[1]]['summary'].values[0]
             
+            # Actualizamos las importaciones con los nuevos algoritmos
             from src.similarity import (similitud_jaccard, similitud_levenshtein, 
-                                      similitud_coseno_tfidf, similitud_sbert)
+                                      similitud_coseno_tfidf, similitud_sbert,
+                                      similitud_dice_ngramas, similitud_ia_segunda)
             
             st.subheader("Resultados de Similitud")
             col1, col2 = st.columns(2)
             
             with col1:
-                st.markdown("### 📚 Clásicos")
+                st.markdown("### 📚 Clásicos y N-Gramas")
                 st.write(f"**Jaccard:** {similitud_jaccard(abs1, abs2):.4f}")
                 st.write(f"**Levenshtein:** {similitud_levenshtein(abs1, abs2):.4f}")
+                st.write(f"**Dice (N-Gramas):** {similitud_dice_ngramas(abs1, abs2):.4f}")
                 st.write(f"**Coseno TF-IDF:** {similitud_coseno_tfidf(abs1, abs2):.4f}")
             
             with col2:
-                st.markdown("### 🤖 IA")
-                st.write(f"**SBERT (Semántica):** {similitud_sbert(abs1, abs2):.4f}")
+                st.markdown("### 🤖 Inteligencia Artificial")
+                st.write(f"**SBERT (MiniLM):** {similitud_sbert(abs1, abs2):.4f}")
+                st.write(f"**DistilBERT (Pro Multilingüe):** {similitud_ia_segunda(abs1, abs2):.4f}")
+                
+                # Cálculo de promedio de IA para una métrica final
+                promedio_ia = (similitud_sbert(abs1, abs2) + similitud_ia_segunda(abs1, abs2)) / 2
+                st.metric("Similitud Semántica Promedio", f"{promedio_ia:.4f}")
             
             with st.expander("Ver contenido de los abstracts"):
                 st.info(f"**Doc 1:** {abs1}")
@@ -118,41 +126,52 @@ elif menu == "Req 3: Análisis de Categorías":
     else:
         st.error("⚠️ No hay datos. Por favor, ejecuta primero el Requerimiento 1.")
         
+
+
+
 elif menu == "Req 4: Clustering Jerárquico":
-    st.header("🌳 Dendrograma de Agrupamiento Jerárquico")
+    st.header("🧬 Laboratorio de Clustering de IA")
     
     ruta = 'data/processed/unificado.csv'
     if os.path.exists(ruta):
         df = pd.read_csv(ruta)
-        
-        # IMPORTACIONES NECESARIAS AQUÍ
-        from src.clustering import generar_clustering_jerarquico
-        from scipy.cluster.hierarchy import dendrogram # <--- ESTA ES LA QUE FALTABA
-        import matplotlib.pyplot as plt
-        
-        with st.spinner("Calculando distancias y generando el árbol..."):
-            Z, titulos = generar_clustering_jerarquico(df)
-            
-            # Crear el gráfico
-            fig, ax = plt.subplots(figsize=(10, 8))
-            
-            # Ahora sí, Python ya sabe qué es dendrogram
-            dendrogram(
-                Z,
-                labels=[t[:40] + "..." for t in titulos],
-                orientation='left',
-                leaf_font_size=10,
-                ax=ax
-            )
-            
-            plt.title("Agrupamiento Jerárquico de Artículos")
-            plt.tight_layout()
-            
-            st.pyplot(fig)
-            
+        from src.clustering import generar_analisis_clusters
+        Z, titulos, resultados = generar_analisis_clusters(df)
+
+        # Creamos 3 pestañas para que se vea un análisis por cada uno
+        tab1, tab2, tab3 = st.tabs(["🌳 Jerárquico", "🎯 K-Means", "📊 Comparativa"])
+
+        with tab1:
+            st.subheader("Dendrograma de Similitud")
+            fig1, ax1 = plt.subplots(figsize=(10, 8))
+            from scipy.cluster.hierarchy import dendrogram
+            dendrogram(Z, labels=[t[:30] for t in titulos], orientation='left', ax=ax1)
+            st.pyplot(fig1)
+            st.info(f"Asertividad: {((resultados['Jerárquico']['score'] + 1) / 2 * 100):.1f}%")
+
+        with tab2:
+            st.subheader("Distribución de Grupos K-Means")
+            # Como no podemos ver 100 dimensiones, mostramos cuántos artículos hay por grupo
+            conteo_k = pd.Series(resultados['K-Means']['labels']).value_counts()
+            st.bar_chart(conteo_k)
+            st.write("Esta gráfica de barras muestra el tamaño de los 3 grupos detectados.")
+            st.info(f"Asertividad: {((resultados['K-Means']['score'] + 1) / 2 * 100):.1f}%")
+
+        with tab3:
+            st.subheader("Tabla de Asertividad Comparada")
+            # Aquí pones la tabla que compara los tres
+            df_comp = pd.DataFrame({
+                "Artículo": titulos,
+                "K-Means": resultados['K-Means']['labels'],
+                "DBSCAN": resultados['DBSCAN']['labels']
+            })
+            st.dataframe(df_comp)
     else:
         st.error("Primero ejecuta el Requerimiento 1.")
         
+
+
+
 elif menu == "Req 5: Visualización":
     st.header("📈 Dashboard de Resultados Bibliométricos")
     
