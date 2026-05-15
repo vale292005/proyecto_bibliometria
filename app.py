@@ -177,35 +177,78 @@ elif menu == "Req 5: Visualización":
     
     ruta = 'data/processed/unificado.csv'
     if os.path.exists(ruta):
+        # 1. Cargar datos
         df = pd.read_csv(ruta)
         
+        # Importar funciones
+        from src.visualizer import (generar_nube_palabras, generar_mapa_calor_geo, 
+                                    generar_linea_temporal, exportar_pdf)
+        
+        # PRE-PROCESAMIENTO: Generamos el mapa primero para que se cree la columna 'country'
+        # y las métricas de arriba no salgan en "0"
+        fig_geo = generar_mapa_calor_geo(df)
+        
         # --- FILA 1: Métricas rápidas ---
-        col1, col2, col3 = st.columns(3)
+        col1, col2 = st.columns(2)
         col1.metric("Artículos Procesados", len(df))
-        col2.metric("Autores Únicos", df['authors'].nunique())
-        col3.metric("Palabras clave detectadas", "+50")
         
+        # Ahora que 'generar_mapa_calor_geo' ya corrió, 'country' existe en el df
+        if 'country' in df.columns:
+            total_paises = df['country'].dropna().nunique()
+            col2.metric("Países Identificados", total_paises)
+        else:
+            col2.metric("Países Identificados", 0)
+        
+        # Botón de Exportación a PDF
+        if st.button("📥 Exportar Reporte Completo a PDF"):
+            with st.spinner("Generando PDF profesional..."):
+                pdf_path = exportar_pdf(df)
+                with open(pdf_path, "rb") as f:
+                    st.download_button("Descargar Reporte.pdf", f, file_name="Reporte_Bibliometrico_IA.pdf")
+
+        st.divider()
+
         # --- FILA 2: Nube de Palabras ---
-        st.subheader("☁️ Nube de Conceptos (WordCloud)")
-        from src.visualizer import generar_nube_palabras
-        
+        st.subheader("☁️ Nube de Conceptos (Abstracts & Keywords)")
         wc = generar_nube_palabras(df)
-        fig, ax = plt.subplots(figsize=(10, 5))
-        ax.imshow(wc, interpolation='bilinear')
-        ax.axis('off')
-        st.pyplot(fig)
+        fig_wc, ax_wc = plt.subplots(figsize=(10, 5))
+        ax_wc.imshow(wc, interpolation='bilinear')
+        ax_wc.axis('off')
+        st.pyplot(fig_wc)
+
+        # --- FILA 3: Geografía (Mapa Mundial) y Tiempo ---
+        col_left, col_right = st.columns(2)
         
-        # --- FILA 3: Buscador Dinámico ---
+        with col_left:
+            st.subheader("🌍 Mapa de Calor Mundial")
+            if fig_geo:
+                # IMPORTANTE: Usamos plotly_chart para el mapa mundial
+                st.plotly_chart(fig_geo, use_container_width=True)
+            else:
+                st.info("ℹ️ No se detectaron países en las afiliaciones.")
+
+        with col_right:
+            st.subheader("📅 Línea Temporal")
+            fig_time = generar_linea_temporal(df)
+            st.pyplot(fig_time)
+
+        # --- FILA 4: Buscador Dinámico ---
+        st.divider()
         st.subheader("🔍 Buscador de Artículos")
-        busqueda = st.text_input("Filtrar por palabra clave (ej. 'ethics', 'student', 'transform'):")
+        busqueda = st.text_input("Filtrar por palabra clave (busca en título o resumen):")
+        
+        columnas_visibles = ['title', 'authors', 'published', 'url']
+        if 'country' in df.columns: columnas_visibles.append('country') # Añadir país si existe
         
         if busqueda:
-            resultado = df[df['summary'].str.contains(busqueda, case=False, na=False)]
-            st.write(f"Se encontraron {len(resultado)} artículos:")
-            st.dataframe(resultado[['title', 'authors', 'url']])
+            mask = (df['summary'].astype(str).str.contains(busqueda, case=False, na=False)) | \
+                   (df['title'].astype(str).str.contains(busqueda, case=False, na=False))
+            resultado = df[mask]
+            st.write(f"✅ Se encontraron {len(resultado)} artículos:")
+            st.dataframe(resultado[columnas_visibles])
         else:
-            st.write("Mostrando todos los registros:")
-            st.dataframe(df[['title', 'authors', 'url']])
+            st.write("Mostrando base de datos completa:")
+            st.dataframe(df[columnas_visibles])
             
     else:
-        st.error("Primero ejecuta el Requerimiento 1 para tener datos que visualizar.")
+        st.error("⚠️ No se encontró el archivo 'unificado.csv'. Por favor, ejecuta primero la descarga de datos.")
