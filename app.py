@@ -138,34 +138,100 @@ elif menu == "Req 4: Clustering Jerárquico":
         from src.clustering import generar_analisis_clusters
         Z, titulos, resultados = generar_analisis_clusters(df)
 
-        # Creamos 3 pestañas para que se vea un análisis por cada uno
-        tab1, tab2, tab3 = st.tabs(["🌳 Jerárquico", "🎯 K-Means", "📊 Comparativa"])
+        # 1. Agregamos una cuarta pestaña para DBSCAN
+        tab1, tab2, tab3, tab4 = st.tabs(["🌳 Jerárquico", "🎯 K-Means", "🌌 DBSCAN", "📊 Comparativa"])
 
+        # --- PESTAÑA 1: Jerárquico ---
         with tab1:
             st.subheader("Dendrograma de Similitud")
             fig1, ax1 = plt.subplots(figsize=(10, 8))
             from scipy.cluster.hierarchy import dendrogram
             dendrogram(Z, labels=[t[:30] for t in titulos], orientation='left', ax=ax1)
+            plt.tight_layout()
             st.pyplot(fig1)
             st.info(f"Asertividad: {((resultados['Jerárquico']['score'] + 1) / 2 * 100):.1f}%")
 
+        # --- PESTAÑA 2: K-Means ---
+# --- PESTAÑA 2: K-Means (Explicado y con buscador) ---
         with tab2:
             st.subheader("Distribución de Grupos K-Means")
-            # Como no podemos ver 100 dimensiones, mostramos cuántos artículos hay por grupo
-            conteo_k = pd.Series(resultados['K-Means']['labels']).value_counts()
+            
+            # Guardamos las etiquetas en el DataFrame original
+            df['Grupo_IA'] = resultados['K-Means']['labels']
+            
+            # Gráfica de barras que ya tenías
+            conteo_k = df['Grupo_IA'].value_counts()
             st.bar_chart(conteo_k)
-            st.write("Esta gráfica de barras muestra el tamaño de los 3 grupos detectados.")
-            st.info(f"Asertividad: {((resultados['K-Means']['score'] + 1) / 2 * 100):.1f}%")
-
+            
+            st.markdown("""
+            🤖 **¿Qué significa esto?** La IA analizó los resúmenes y organizó los artículos en 3 grandes 'temáticas' de forma automática:
+            """)
+            
+            # Ponemos un selector dinámico para que elijas qué grupo quieres explorar
+            grupo_elegido = st.selectbox("Selecciona un grupo para ver sus artículos:", [0, 1, 2])
+            
+            # Filtramos el DataFrame para mostrar solo los de ese grupo
+            articulos_del_grupo = df[df['Grupo_IA'] == grupo_elegido][['title', 'summary']]
+            
+            st.write(f"📂 **Artículos asignados al Grupo {grupo_elegido} (Total: {len(articulos_del_grupo)}):**")
+            st.dataframe(articulos_del_grupo)
+            
+        # --- PESTAÑA 3: DBSCAN (La que te faltaba) ---
         with tab3:
-            st.subheader("Tabla de Asertividad Comparada")
-            # Aquí pones la tabla que compara los tres
+            st.subheader("Agrupamiento por Densidad (DBSCAN)")
+            st.write("DBSCAN agrupa artículos basándose en qué tan 'cerca' están unos de otros y separa el ruido.")
+            
+            # Contamos cuántos artículos cayeron en cada grupo
+            labels_db = resultados['DBSCAN']['labels']
+            conteo_d = pd.Series(labels_db).value_counts()
+            
+            # El grupo -1 en DBSCAN significa "Ruido" (artículos que no encajaron en ningún tema)
+            if -1 in conteo_d.index:
+                st.warning(f"⚠️ Se detectaron {conteo_d[-1]} artículos clasificados como 'Ruido' (sin un patrón claro).")
+            
+            # Mostramos el gráfico de barras sin contar el ruido para ver los grupos reales creados
+            st.bar_chart(conteo_d)
+            st.info(f"Asertividad: {((resultados['DBSCAN']['score'] + 1) / 2 * 100):.1f}%")
+
+        # --- PESTAÑA 4: Comparativa ---
+        with tab4:
+            st.subheader("Análisis Comparativo de Modelos")
+            
+            # Gráfico de barras comparando la asertividad (Silhouette Score) de los 3
+            metodos = ["Jerárquico", "K-Means", "DBSCAN"]
+            # Convertimos los scores a la misma escala de porcentaje que usas en las pestañas
+            asertividades = [
+                (resultados['Jerárquico']['score'] + 1) / 2 * 100,
+                (resultados['K-Means']['score'] + 1) / 2 * 100,
+                (resultados['DBSCAN']['score'] + 1) / 2 * 100
+            ]
+            
+            fig_comp, ax_comp = plt.subplots(figsize=(8, 4))
+            bars = ax_comp.bar(metodos, asertividades, color=['#4e79a7', '#f28e2b', '#e15759'])
+            ax_comp.set_ylabel("Porcentaje de Asertividad (%)")
+            ax_comp.set_ylim(0, 100)
+            ax_comp.set_title("¿Qué algoritmo agrupó mejor la información?")
+            
+            # Añadir las etiquetas del porcentaje arriba de cada barra
+            for bar in bars:
+                height = bar.get_height()
+                ax_comp.text(bar.get_x() + bar.get_width()/2.0, height + 2, f"{height:.1f}%", ha='center', fontweight='bold')
+            
+            plt.tight_layout()
+            st.pyplot(fig_comp)
+            
+            st.write("---")
+            st.write("📂 **Asignación detallada por cada artículo:**")
+            
+            # Tu tabla original expandida incluyendo los grupos del Jerárquico
             df_comp = pd.DataFrame({
                 "Artículo": titulos,
-                "K-Means": resultados['K-Means']['labels'],
-                "DBSCAN": resultados['DBSCAN']['labels']
+                "Grupo Jerárquico": resultados['Jerárquico']['labels'],
+                "Grupo K-Means": resultados['K-Means']['labels'],
+                "Grupo DBSCAN (Densidad)": resultados['DBSCAN']['labels']
             })
             st.dataframe(df_comp)
+            
     else:
         st.error("Primero ejecuta el Requerimiento 1.")
         

@@ -11,9 +11,10 @@ def generar_analisis_clusters(df):
     Genera tres modelos de clustering (Jerárquico, K-Means, DBSCAN) 
     y calcula su asertividad mediante el Silhouette Score.
     """
-    # 1. Vectorización TF-IDF de los resúmenes
-    # Usamos un máximo de 100 términos para balancear precisión y velocidad
-    vectorizer = TfidfVectorizer(max_features=100, stop_words='english')
+    # 1. Vectorización TF-IDF Mejorada
+    # Usamos max_features=150 y ngram_range=(1, 2) para capturar palabras sueltas 
+    # y combinaciones de dos palabras (ej. "machine learning", "artificial intelligence").
+    vectorizer = TfidfVectorizer(max_features=150, stop_words='english', ngram_range=(1, 2))
     matrix = vectorizer.fit_transform(df['summary'].astype(str)).toarray()
     
     resultados = {}
@@ -29,22 +30,26 @@ def generar_analisis_clusters(df):
     resultados['Jerárquico'] = {"score": score_h, "labels": labels_h}
 
     # --- MÉTODO 2: K-Means ---
-    # Agrupamiento particional estándar
+    # Agrupamiento particional estándar (mantenemos los 3 grupos fijos)
     kmeans = KMeans(n_clusters=3, random_state=42, n_init=10)
     labels_k = kmeans.fit_predict(matrix)
     score_k = silhouette_score(matrix, labels_k)
     resultados['K-Means'] = {"score": score_k, "labels": labels_k}
 
-    # --- MÉTODO 3: DBSCAN ---
-    # Agrupamiento basado en densidad
-    dbscan = DBSCAN(eps=0.5, min_samples=2)
+    # --- MÉTODO 3: DBSCAN OPTIMIZADO (Para textos) ---
+    # Cambiamos la métrica a 'cosine' porque mide el ángulo de los términos y es superior para NLP.
+    # Subimos el radio eps a 0.7 para ser más tolerantes y rescatar artículos clasificados como "ruido".
+    dbscan = DBSCAN(eps=0.7, min_samples=2, metric='cosine')
     labels_d = dbscan.fit_predict(matrix)
     
-    # Manejo de error si DBSCAN no encuentra suficientes grupos para la métrica
-    if len(set(labels_d)) > 1:
-        score_d = silhouette_score(matrix, labels_d)
+    # Manejo de error si DBSCAN no encuentra suficientes grupos o todo es ruido (-1)
+    # Exigimos la métrica 'cosine' también en el score para mantener la consistencia matemática
+    clusters_unicos = set(labels_d)
+    if len(clusters_unicos) > 1 and (len(clusters_unicos) > 2 or -1 not in clusters_unicos):
+        score_d = silhouette_score(matrix, labels_d, metric='cosine')
     else:
         score_d = 0.0
+        
     resultados['DBSCAN'] = {"score": score_d, "labels": labels_d}
 
     # Retornamos Z (para el dendrograma), los títulos y el diccionario de IA
