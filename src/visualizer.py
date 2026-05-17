@@ -1,11 +1,12 @@
+import os
+import re
 import pandas as pd
 import matplotlib.pyplot as plt
+import matplotlib.ticker as ticker
 import seaborn as sns
 from wordcloud import WordCloud
 from fpdf import FPDF
-import io
-
-import re # Añade esta importación al inicio del archivo
+import plotly.express as px
 
 def generar_nube_palabras(df):
     # 1. Unimos y pasamos a minúsculas
@@ -22,12 +23,10 @@ def generar_nube_palabras(df):
     
     # 3. Filtros académicos que suelen estorbar
     filtros_academicos = {'study', 'research', 'paper', 'results', 'ai', 'intelligence', 'artificial'}
-    
     todas_las_stopwords = stopwords_manual.union(filtros_academicos)
 
     # 4. LIMPIEZA MANUAL: Eliminamos palabras de 2 o menos letras y stopwords
-    # Esto asegura que "of", "in", "it", "is" desaparezcan sí o sí
-    palabras = re.findall(r'\b\w{3,}\b', texto) # \b\w{3,}\b solo toma palabras de 3 letras o más
+    palabras = re.findall(r'\b\w{3,}\b', texto)
     texto_limpio = " ".join([w for w in palabras if w not in todas_las_stopwords])
 
     # 5. Generar la nube con el texto ya filtrado
@@ -36,19 +35,15 @@ def generar_nube_palabras(df):
         height=400, 
         background_color='white',
         colormap='viridis',
-        max_words=100, # Limitamos a las 100 más importantes
-        stopwords=todas_las_stopwords # Doble filtro por seguridad
+        max_words=100,
+        stopwords=todas_las_stopwords
     ).generate(texto_limpio)
     
     return wc
 
-import plotly.express as px # Añade esta importación al inicio
-
-import plotly.express as px
 
 def generar_mapa_calor_geo(df):
     # 1. Diccionario SUPER EXPANDIDO de detección
-    # Agregamos ciudades y universidades famosas para forzar la detección
     diccionario_paises = {
         'USA': ['usa', 'united states', 'america', 'california', 'new york', 'harvard', 'mit', 'stanford', 'florida', 'texas'],
         'China': ['china', 'beijing', 'shanghai', 'tsinghua', 'zhejiang', 'wuhan'],
@@ -67,17 +62,16 @@ def generar_mapa_calor_geo(df):
     def buscar_pais(texto):
         if pd.isna(texto): return None
         texto = str(texto).lower()
-        # Buscamos cada país y sus ciudades/universidades asociadas
         for pais, variantes in diccionario_paises.items():
             for variante in variantes:
                 if variante in texto:
                     return pais
         return None
 
-    # 2. Aplicar la búsqueda (Limpiamos la columna anterior para recalcular)
+    # 2. Aplicar la búsqueda
     df['country'] = df['authors'].astype(str).apply(buscar_pais)
     
-    # 3. Si sigue muy vacío, buscar en el 'summary' (a veces mencionan el lugar del estudio)
+    # 3. Rastreo secundario en el summary
     mask_vacio = df['country'].isnull()
     if mask_vacio.any():
         df.loc[mask_vacio, 'country'] = df.loc[mask_vacio, 'summary'].astype(str).apply(buscar_pais)
@@ -89,7 +83,7 @@ def generar_mapa_calor_geo(df):
     if conteo.empty:
         return None
 
-    # 5. Crear el Mapa Mundial
+    # 5. Crear el Mapa Mundial Interactivo para Streamlit
     fig = px.choropleth(
         conteo,
         locations="País",
@@ -104,24 +98,34 @@ def generar_mapa_calor_geo(df):
     return fig
 
 
+def _generar_grafico_paises_estatico(df):
+    """Función auxiliar interna encargada de generar un gráfico de barras compatible con el PDF"""
+    if 'country' not in df.columns or df['country'].isnull().all():
+        return None
+        
+    conteo = df['country'].value_counts().reset_index()
+    conteo.columns = ['País', 'Artículos']
+    
+    fig, ax = plt.subplots(figsize=(10, 5))
+    sns.barplot(data=conteo.head(10), x='Artículos', y='País', palette='viridis', ax=ax)
+    ax.set_title("Top Países con Mayor Producción Científica")
+    plt.tight_layout()
+    return fig
+
+
 def generar_linea_temporal(df):
     # 1. Limpieza de fechas
     if 'published' in df.columns:
-        # Convertimos a string y quitamos espacios en blanco
         df['published'] = df['published'].astype(str).str.strip()
-        
-        # Intentamos convertir a fecha. 
-        # 'coerce' pone Nat (Not a Time) si falla, lo que evita que se invente el año 1970
         df['year_plot'] = pd.to_datetime(df['published'], errors='coerce').dt.year
         
-        # Si después de intentar convertir, todo es 1970 o nulo, 
-        # intentamos extraer el año con una expresión regular (busca 4 números seguidos)
+        # Intento de extracción por expresión regular si falla la conversión estándar
         if df['year_plot'].isnull().all() or (df['year_plot'] == 1970).all():
             df['year_plot'] = df['published'].str.extract(r'(\d{4})').astype(float)
     else:
-        df['year_plot'] = 2024 # Fallback si no existe la columna
+        df['year_plot'] = 2024
 
-    # 2. Filtrar filas donde el año no se pudo obtener (para que no salga el punto en 1970)
+    # 2. Filtrar fechas fantasma o inválidas
     df_temp = df[df['year_plot'].notnull() & (df['year_plot'] > 1900)].copy()
 
     if df_temp.empty:
@@ -139,17 +143,13 @@ def generar_linea_temporal(df):
         timeline = df_temp.groupby(['year_plot', col_revista]).size().unstack(fill_value=0)
         
         fig, ax = plt.subplots(figsize=(10, 5))
-        # Usamos un gráfico de barras si hay pocos años o línea si hay muchos
         timeline.plot(kind='line', marker='o', ax=ax)
         
         ax.set_title("Evolución de Publicaciones por Año")
         ax.set_xlabel("Año")
         ax.set_ylabel("Cantidad de Artículos")
         
-        # Forzar que el eje X solo muestre años enteros y no decimales
-        import matplotlib.ticker as ticker
         ax.xaxis.set_major_locator(ticker.MaxNLocator(integer=True))
-        
         plt.legend(title="Revista/Fuente", bbox_to_anchor=(1.05, 1), loc='upper left')
         plt.tight_layout()
         return fig
@@ -157,6 +157,7 @@ def generar_linea_temporal(df):
         fig, ax = plt.subplots()
         ax.text(0.5, 0.5, f"Error en gráfico: {e}", ha='center')
         return fig
+
 
 def exportar_pdf(df):
     pdf = FPDF()
@@ -166,35 +167,49 @@ def exportar_pdf(df):
     pdf.add_page()
     pdf.set_font("Arial", 'B', 20)
     pdf.cell(0, 20, "Reporte Bibliométrico de IA", ln=True, align='C')
+    pdf.ln(10)
     
     pdf.set_font("Arial", 'B', 14)
     pdf.cell(0, 10, "1. Nube de Palabras Clave", ln=True)
+    pdf.ln(5)
     
     # Guardar WordCloud temporalmente
     wc = generar_nube_palabras(df)
     wc.to_file("temp_wc.png")
-    pdf.image("temp_wc.png", x=10, y=50, w=180)
+    pdf.image("temp_wc.png", x=15, y=55, w=180)
     
-    # --- Página 2: Geografía ---
+    # --- Página 2: Geografía (Resuelto con gráfico estático) ---
     pdf.add_page()
+    pdf.set_font("Arial", 'B', 14)
     pdf.cell(0, 10, "2. Distribución Geográfica", ln=True)
-    fig_geo = generar_mapa_calor_geo(df)
-    if fig_geo:
-        fig_geo.savefig("temp_geo.png")
-        pdf.image("temp_geo.png", x=10, y=30, w=180)
+    pdf.ln(5)
+    
+    fig_geo_estatico = _generar_grafico_paises_estatico(df)
+    if fig_geo_estatico:
+        fig_geo_estatico.savefig("temp_geo.png", dpi=300)
+        pdf.image("temp_geo.png", x=15, y=35, w=180)
+        plt.close(fig_geo_estatico)
+    else:
+        pdf.set_font("Arial", '', 12)
+        pdf.cell(0, 10, "No se encontraron datos geográficos suficientes.", ln=True)
     
     # --- Página 3: Línea Temporal ---
     pdf.add_page()
+    pdf.set_font("Arial", 'B', 14)
     pdf.cell(0, 10, "3. Evolución Temporal", ln=True)
+    pdf.ln(5)
+    
     fig_time = generar_linea_temporal(df)
-    fig_time.savefig("temp_time.png")
-    pdf.image("temp_time.png", x=10, y=30, w=180)
+    fig_time.savefig("temp_time.png", dpi=300)
+    pdf.image("temp_time.png", x=15, y=35, w=180)
+    plt.close(fig_time)
     
     ruta_pdf = "Reporte_Final_IA.pdf"
     pdf.output(ruta_pdf)
     
-    # Limpiar archivos temporales
+    # Limpiar archivos temporales de forma segura
     for f in ["temp_wc.png", "temp_geo.png", "temp_time.png"]:
-        if os.path.exists(f): os.remove(f)
+        if os.path.exists(f): 
+            os.remove(f)
         
     return ruta_pdf
