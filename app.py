@@ -22,7 +22,7 @@ if menu == "Inicio":
 
 elif menu == "Req 1: Descarga y Unificación":
     st.header("Automatización de Datos")
-    st.write("Este módulo descarga datos de ArXiv sobre *Generative AI* y unifica los registros.")
+    st.write("Este módulo descarga datos de ScienseDirect y BESCO sobre *Generative AI* y unifica los registros.")
     
     if st.button("Ejecutar Automatización"):
         with st.spinner("Buscando en las bases de datos..."):

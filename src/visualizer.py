@@ -7,29 +7,30 @@ import seaborn as sns
 from wordcloud import WordCloud
 from fpdf import FPDF
 import plotly.express as px
+import nltk
+from nltk.corpus import stopwords
+
+try:
+    nltk.data.find('corpora/stopwords')
+except LookupError:
+    nltk.download('stopwords')
 
 def generar_nube_palabras(df):
-    # 1. Unimos y pasamos a minúsculas
     texto = " ".join(df['summary'].astype(str).str.lower())
     
-    # 2. Lista extendida de conectores rebeldes (Stopwords)
-    stopwords_manual = {
-        'of', 'on', 'in', 'it', 'the', 'and', 'for', 'with', 'that', 'this', 'from', 
-        'was', 'were', 'been', 'has', 'have', 'had', 'but', 'not', 'are', 'is', 'an', 
-        'as', 'at', 'by', 'to', 'or', 'so', 'if', 'be', 'about', 'which', 'who',
-        'el', 'la', 'los', 'las', 'un', 'una', 'unos', 'unas', 'y', 'e', 'ni', 'o', 
-        'u', 'pero', 'con', 'sin', 'sobre', 'para', 'por', 'del', 'al', 'que', 'son'
+    stopwords_nltk = set(stopwords.words('english')).union(set(stopwords.words('spanish')))
+    
+    filtros_academicos = {
+        'study', 'research', 'paper', 'results', 'ai', 'intelligence', 'artificial',
+        'author', 'authors', 'method', 'methods', 'analysis', 'using', 'based'
     }
     
-    # 3. Filtros académicos que suelen estorbar
-    filtros_academicos = {'study', 'research', 'paper', 'results', 'ai', 'intelligence', 'artificial'}
-    todas_las_stopwords = stopwords_manual.union(filtros_academicos)
+    todas_las_stopwords = stopwords_nltk.union(filtros_academicos)
 
-    # 4. LIMPIEZA MANUAL: Eliminamos palabras de 2 o menos letras y stopwords
     palabras = re.findall(r'\b\w{3,}\b', texto)
+    
     texto_limpio = " ".join([w for w in palabras if w not in todas_las_stopwords])
 
-    # 5. Generar la nube con el texto ya filtrado
     wc = WordCloud(
         width=800, 
         height=400, 
@@ -40,7 +41,6 @@ def generar_nube_palabras(df):
     ).generate(texto_limpio)
     
     return wc
-
 
 def generar_mapa_calor_geo(df):
     # 1. Diccionario SUPER EXPANDIDO de detección
