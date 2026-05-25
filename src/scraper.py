@@ -386,15 +386,74 @@ def procesar_archivos():
         print("═" * 55)
         print("""
 INSTRUCCIONES:
-  1. En Chrome entra a EBSCO (Academic Search Ultimate).
-  2. Haz tu búsqueda y aplica los filtros.
-  3. Cuando veas la lista de resultados, vuelve aquí.
-  4. Presiona ENTER.
-
-  ℹ️  El script descargará un CSV por página.
-      Ese CSV incluye TÍTULO, AUTORES, AÑO y RESUMEN completo.
+  1. En la ventana de Chrome que se abrió, inicia sesión con tus credenciales.
+  2. Una vez que pases el login institucional y veas la base de datos abierta, vuelve aquí.
+  3. Presiona ENTER. El script buscará el término de IA automáticamente.
 """)
-        input(">>> PRESIONA [ENTER] CUANDO ESTÉS EN LA LISTA <<<\n")
+        input(">>> PRESIONA [ENTER] CUANDO HAYAS INICIADO SESIÓN <<<\n")
+
+        print("Detectando página y comenzando proceso...")
+        time.sleep(3)
+
+        url_actual = driver.current_url.lower()
+        termino_busqueda = "generative artificial intelligence"
+
+        if "sciencedirect" in url_actual or "elsevier" in url_actual:
+            print("  🚀 Modo ScienceDirect activado.")
+            selectores_caja = [
+                (By.CSS_SELECTOR, "input[name='qs']"),
+                (By.ID,"qs")
+            ]
+            selectores_buscar = [
+                (By.CSS_SELECTOR, "button[type='submit']"),
+                (By.CLASS_NAME, "search-submit-button")
+            ]
+
+            caja = encontrar_elemento(driver, selectores_caja, timeout=10)
+            if caja:
+                caja.clear()
+                caja.send_keys(termino_busqueda)
+                btn = encontrar_elemento(driver, selectores_buscar, timeout=5)
+                if btn:
+                    clic_js(driver, btn)
+                    print("  ✅ Búsqueda iniciada en ScienceDirect.")
+                    time.sleep(5)
+                else:
+                    print("  ⚠️  No se encontró botón de búsqueda en ScienceDirect.")
+        elif "ebsco" in url_actual:
+            print("  🚀 Modo EBSCO activado. Asegúrate de haber hecho tu búsqueda.")
+
+            selectores_caja = [
+                (By.ID, "search-input"),
+                (By.CSS_SELECTOR, "input#search-input"),
+                (By.CSS_SELECTOR, "input.eb-search-autocomplete__input"),
+                (By.CSS_SELECTOR, "input[data-auto='search-input-box']"),
+                (By.CSS_SELECTOR, "input[aria-label='Búsqueda']")
+            ]
+            selectores_buscar = [
+                (By.CSS_SELECTOR, "button.search-components__search-button"),
+                (By.CSS_SELECTOR, "button[aria-label='Buscar']"),
+                (By.CSS_SELECTOR, "button[type='submit']"),
+                (By.CSS_SELECTOR, "button[data-auto='search-submit-button']")
+            ]
+
+            caja = encontrar_elemento(driver, selectores_caja, timeout=10)
+            if caja:
+                caja.clear()
+                caja.send_keys(termino_busqueda)
+                btn = encontrar_elemento(driver, selectores_buscar, timeout=5)
+                if btn:
+                    clic_js(driver, btn)
+                    print("  ✅ Búsqueda iniciada en EBSCO.")
+                    time.sleep(5)
+                else:
+                    print("  ⚠️  No se encontró botón de búsqueda en EBSCO.")
+            else:
+                print("  ⚠️  No se encontró caja de búsqueda en EBSCO.")
+                print("  Por favor, escribe la búsqueda manualmente en el navegador y continúa.")
+                input("  >>> Presiona ENTER cuando los resultados estén cargados <<<")
+
+
         pagina_actual = 1
 
         while True:
